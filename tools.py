@@ -4,7 +4,9 @@ MCP Client and tool conversion utilities for the LangGraph Claude demo.
 
 import json
 import requests
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Callable
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 
 class MCPClient:
@@ -138,6 +140,48 @@ class MCPClient:
                 
         except Exception as e:
             return {"error": f"Tool call failed: {str(e)}"}
+
+
+class MCPTool(BaseTool):
+    """LangChain Tool wrapper for MCP tools"""
+    
+    name: str
+    description: str
+    mcp_client: MCPClient
+    tool_name: str
+    
+    def __init__(self, tool_name: str, tool_def: Dict[str, Any], mcp_client: MCPClient):
+        super().__init__(
+            name=tool_name,
+            description=tool_def.get("description", f"MCP tool: {tool_name}"),
+            mcp_client=mcp_client,
+            tool_name=tool_name
+        )
+    
+    def _run(self, **kwargs) -> str:
+        """Execute the MCP tool"""
+        try:
+            result = self.mcp_client.call_tool(self.tool_name, kwargs)
+            if isinstance(result, dict) and "error" in result:
+                return f"Error: {result['error']}"
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Tool execution failed: {str(e)}"
+    
+    async def _arun(self, **kwargs) -> str:
+        """Async version - just calls sync version for now"""
+        return self._run(**kwargs)
+
+
+def create_langchain_tools_from_mcp(mcp_client: MCPClient) -> List[MCPTool]:
+    """Convert MCP tools to LangChain Tool objects"""
+    langchain_tools = []
+    
+    for tool_name, tool_def in mcp_client.tools.items():
+        langchain_tool = MCPTool(tool_name, tool_def, mcp_client)
+        langchain_tools.append(langchain_tool)
+    
+    return langchain_tools
 
 
 def convert_mcp_tools_to_claude_format(mcp_tools: Dict[str, Any]) -> List[Dict[str, Any]]:

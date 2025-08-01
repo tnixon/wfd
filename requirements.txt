@@ -1,5 +1,7 @@
 langgraph
 anthropic
+langchain-anthropic
+langchain-core
 python-dotenv
 requests
 httpx
