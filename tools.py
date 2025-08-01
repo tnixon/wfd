@@ -4,9 +4,9 @@ MCP Client and tool conversion utilities for the LangGraph Claude demo.
 
 import json
 import requests
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Type
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 
 class MCPClient:
@@ -142,18 +142,59 @@ class MCPClient:
             return {"error": f"Tool call failed: {str(e)}"}
 
 
+def create_pydantic_model_from_schema(tool_name: str, input_schema: Dict[str, Any]) -> Type[BaseModel]:
+    """Create a Pydantic model from MCP input schema"""
+    properties = input_schema.get("properties", {})
+    required_fields = input_schema.get("required", [])
+    
+    fields = {}
+    for field_name, field_def in properties.items():
+        field_type = str  # Default to string
+        default_value = ... if field_name in required_fields else None
+        
+        # Map JSON Schema types to Python types
+        if field_def.get("type") == "number":
+            field_type = float
+        elif field_def.get("type") == "integer":
+            field_type = int
+        elif field_def.get("type") == "boolean":
+            field_type = bool
+        elif field_def.get("type") == "array":
+            field_type = List[str]  # Simplified - assume array of strings
+        
+        # Create field with description
+        if default_value is ...:
+            fields[field_name] = (field_type, Field(description=field_def.get("description", "")))
+        else:
+            fields[field_name] = (Optional[field_type], Field(default=default_value, description=field_def.get("description", "")))
+    
+    return create_model(f"{tool_name}Input", **fields)
+
+
 class MCPTool(BaseTool):
     """LangChain Tool wrapper for MCP tools"""
     
     name: str
     description: str
+    args_schema: Optional[Type[BaseModel]] = None
     mcp_client: MCPClient
     tool_name: str
     
     def __init__(self, tool_name: str, tool_def: Dict[str, Any], mcp_client: MCPClient):
+        # Create Pydantic model for arguments
+        input_schema = tool_def.get("inputSchema", {})
+        args_schema = None
+        
+        if input_schema and input_schema.get("properties"):
+            try:
+                args_schema = create_pydantic_model_from_schema(tool_name, input_schema)
+            except Exception as e:
+                print(f"Warning: Could not create schema for {tool_name}: {e}")
+        
         super().__init__(
             name=tool_name,
             description=tool_def.get("description", f"MCP tool: {tool_name}"),
+            args_schema=args_schema,
             mcp_client=mcp_client,
             tool_name=tool_name
         )
@@ -161,12 +202,21 @@ class MCPTool(BaseTool):
     def _run(self, **kwargs) -> str:
         """Execute the MCP tool"""
         try:
-            result = self.mcp_client.call_tool(self.tool_name, kwargs)
+            # Filter out None values to avoid sending empty parameters
+            filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            
+            print(f"Debug: Calling MCP tool {self.tool_name} with args: {filtered_kwargs}")
+            result = self.mcp_client.call_tool(self.tool_name, filtered_kwargs)
+            
             if isinstance(result, dict) and "error" in result:
                 return f"Error: {result['error']}"
+            
+            # Return formatted JSON result
             return json.dumps(result, indent=2)
         except Exception as e:
-            return f"Tool execution failed: {str(e)}"
+            error_msg = f"Tool execution failed: {str(e)}"
+            print(f"Debug: {error_msg}")
+            return error_msg
     
     async def _arun(self, **kwargs) -> str:
         """Async version - just calls sync version for now"""
@@ -178,8 +228,12 @@ def create_langchain_tools_from_mcp(mcp_client: MCPClient) -> List[MCPTool]:
     langchain_tools = []
     
     for tool_name, tool_def in mcp_client.tools.items():
-        langchain_tool = MCPTool(tool_name, tool_def, mcp_client)
-        langchain_tools.append(langchain_tool)
+        try:
+            langchain_tool = MCPTool(tool_name, tool_def, mcp_client)
+            langchain_tools.append(langchain_tool)
+            print(f"Created LangChain tool: {tool_name}")
+        except Exception as e:
+            print(f"Failed to create tool {tool_name}: {e}")
     
     return langchain_tools
 
