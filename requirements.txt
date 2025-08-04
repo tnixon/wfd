@@ -2,6 +2,13 @@ langgraph
 anthropic
 langchain-anthropic
 langchain-core
+langchain-community
 python-dotenv
 requests
 httpx
+mlflow>=3.1
+langsmith
+pandas
+matplotlib
+seaborn
+setproctitle==1.2
