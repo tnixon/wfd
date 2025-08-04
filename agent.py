@@ -5,6 +5,7 @@ LangGraph agent setup and utility functions for Claude MCP integration using Too
 import uuid
 import datetime as dt
 from typing import TypedDict, Annotated, List
+
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
@@ -13,6 +14,9 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
 from tools import MCPClient, create_langchain_tools_from_mcp
+
+import mlflow
+from mlflow.entities import SpanType
 
 # The default system message for the agent
 DEFAULT_SYSTEM_MESSAGE = """You are a helpful restaurant booking assistant. 
@@ -140,6 +144,7 @@ class WFDAgent:
         # Otherwise, we stop (reply to the user)
         return "end"
     
+    @mlflow.trace(span_type=SpanType.AGENT, name="WFDAgent.chat")
     def chat(self, user_input: str, thread_id: str = "default_conversation") -> str:
         """Run a single chat interaction with memory"""
         config = {"configurable": {"thread_id": thread_id}}
@@ -157,43 +162,6 @@ class WFDAgent:
             return last_message.content
         else:
             return str(last_message.content)
-    
-    def interactive_chat(self, thread_id: str = "interactive_session"):
-        """Run an interactive chat session"""
-        print("Chat with Claude (powered by MCP restaurant booking tools)!")
-        print("Memory-enabled: Claude will remember our conversation!")
-        print("Available commands:")
-        print("- Ask for restaurant recommendations")
-        print("- Request restaurant details") 
-        print("- Check availability and make reservations")
-        print("- Type 'quit' to exit")
-        print("- Type 'reset' to start a new conversation")
-        
-        if self.tools:
-            print(f"- Available tools: {[tool.name for tool in self.tools]}")
-        else:
-            print("- No MCP tools available")
-        
-        print("-" * 50)
-        
-        current_thread_id = thread_id
-        
-        while True:
-            user_input = input("\nYou: ")
-            
-            if user_input.lower() in ['quit', 'exit', 'bye']:
-                print("Goodbye!")
-                break
-            elif user_input.lower() == 'reset':
-                current_thread_id = f"session_{str(uuid.uuid4())[:8]}"
-                print(f"Started new conversation (thread: {current_thread_id})")
-                continue
-            
-            try:
-                response = self.chat(user_input, current_thread_id)
-                print(f"\nClaude: {response}")
-            except Exception as e:
-                print(f"\nError: {e}")
     
     def show_conversation_history(self, thread_id: str = "default_conversation"):
         """Display the conversation history for a thread"""
