@@ -3,6 +3,7 @@ LangGraph agent setup and utility functions for Claude MCP integration using Too
 """
 
 import uuid
+import datetime as dt
 from typing import TypedDict, Annotated, List
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
@@ -22,6 +23,9 @@ You will have a number of tools available to you to help with this, including:
 - Retrieving restaurant details
 - Checking availability for reservations
 - Making reservations on behalf of the user
+
+Today's date is {today_date}. If not specified by the user, assume that any bookings are for tomorrow {tmrw_date}.
+
 Please exercise judgement in terms of which tools to use for which step in the process.
 Always try to be helpful and polite, and remember that you are a virtual assistant."""
 
@@ -41,7 +45,7 @@ class WFDAgent:
         self.model_id = model_id
         self.mcp_client = MCPClient(mcp_server_url)
         self.memory = MemorySaver()
-        self.sys_msg = SystemMessage(system_message)
+        self.sys_msg = system_message
         self.app = None
         self.tools = []
         
@@ -54,6 +58,16 @@ class WFDAgent:
         )
         
         self._initialize_mcp_and_build_workflow()
+
+    def system_message(self) -> SystemMessage:
+        """Return the system message for the agent"""
+        today_date = dt.datetime.now()
+        tomorrow_date = today_date + dt.timedelta(days=1)
+        formatted_message = self.sys_msg.format(
+            today_date=today_date.strftime("%Y-%m-%d"),
+            tmrw_date=tomorrow_date.strftime("%Y-%m-%d")
+        )
+        return SystemMessage(content=formatted_message)
     
     def _initialize_mcp_and_build_workflow(self):
         """Initialize MCP and build the LangGraph workflow"""
@@ -112,7 +126,7 @@ class WFDAgent:
     def _call_model(self, state: State) -> State:
         """Call the language model"""
         messages = state["messages"]
-        response = self.llm_with_tools.invoke([self.sys_msg] + messages)
+        response = self.llm_with_tools.invoke([self.system_message()] + messages)
         return {"messages": [response]}
     
     def _should_continue(self, state: State) -> str:
