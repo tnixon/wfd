@@ -12,3 +12,7 @@ pandas
 matplotlib
 seaborn
 setproctitle==1.2
+evaluate
+textstat
+transformers
+torch
